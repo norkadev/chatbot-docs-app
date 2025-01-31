@@ -5,30 +5,27 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain.prompts import PromptTemplate
 from langchain.vectorstores import Pinecone
 from langchain.chains import RetrievalQA
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
 
 import os
 import openai
 import chainlit as cl
+import PyPDF2
 
-# TODO:
-# Add capability to upload pdf docs
+# TODOs:
 # Add capability for history of questions
 
 # Set your API keys for OpenAI and Pinecone
 openai.api_key = os.environ['OPENAI_API_KEY']
-
 # Initialize OpenAI Embeddings using LangChain
 embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")  # Specify which embedding model
-
 # Connect to the Pinecone index using LangChain's Pinecone wrapper
-pinecone_index_name = "index1536"
+pinecone_index_name = "index-test-1"
 vector_store = PineconeVectorStore(index_name=pinecone_index_name, embedding=embeddings)
-
 # Initialize GPT-4 with OpenAI
 llm = ChatOpenAI( model="gpt-4", openai_api_key=openai.api_key, temperature=0.7 )
-
-
-
+text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
 # Define Prompt Template
 prompt_template = """Use the following pieces of context to answer the users question.
 If you don't know the answer, just say that you don't know, don't try to make up an answer.
@@ -113,16 +110,50 @@ async def initialize_bot():
     """
     # Create a new instance of the retrieval QA bot
     qa_bot = create_retrieval_qa_bot()
-    welcome_message = cl.Message(content="Starting the bot...")
+    welcome_message = cl.Message(content="Hi, Welcome to the PDFs chatbot!")
     await welcome_message.send()
     welcome_message.content = (
-        "Hi, Welcome to the AMD chatbot!"
+        "Hi, Welcome to the PDFs chatbot!"
     )
-    await welcome_message.update()
+    files = None
 
-    # Send a welcome message
-    await cl.Message("Ask me anything related to documentation for AMD processors, accelerators, graphics, and other products.").send()
+    # Wait for the user to upload a PDF file
+    while files is None:
+        files = await cl.AskFileMessage(
+            content="Please upload PDF files to begin!",
+            accept=["application/pdf"],
+            max_size_mb=20,
+            timeout=180,
+            max_files = 20
+        ).send()
 
+    # Add a loop to iterate over files array
+    for file in files:
+        # Add a counter to keep track of the number of files processed
+        file_counter = 1
+        with open(file.path, "rb") as f:
+            reader = PyPDF2.PdfReader(f)
+            text = ""
+            for page_num in range(len(reader.pages)):
+                page = reader.pages[page_num] 
+                text += page.extract_text()
+            
+            # Split the text into chunks
+            texts = text_splitter.split_text(text)
+
+            # Create a metadata for each chunk
+            metadatas = [{"source": f"{i}-pl"} for i in range(len(texts))]
+        file_counter += 1
+        vectorstore = PineconeVectorStore(index_name=pinecone_index_name, embedding=embeddings)
+        vectorstore.add_texts(texts=texts, metadatas=metadatas)
+
+
+    # print the length of the files array
+    print("Number of files uploaded:", len(files))
+    msg = cl.Message(content=f"Processed `{len(files)}` files")
+    await msg.send()
+    await cl.Message("Ask me anything related to uploaded documents!").send()
+    
     # Store the bot instance in the user's session
     cl.user_session.set("qa_bot", qa_bot)
 
@@ -152,25 +183,3 @@ async def process_chat_message(message: cl.Message):
         bot_answer += "\nNo sources found"
 
     await cl.Message(content=bot_answer).send()
-
-""" Using standard output
-
-# Define the retrieval mechanism
-retriever = vector_store.as_retriever(search_kwargs={"k": 1})  # Retrieve top-1 relevant documents
-
-# Create LLM Chain
-llm_chain = prompt_template | llm | StrOutputParser()
-
-# Retrieve documents
-query = "
-What are the gen processors include hardened security features that help protect against malicious users, devices, and code?
-"
-docs = retriever.invoke(query)
-context = "\n\n".join([doc.page_content for doc in docs])
-    
-# Run LLM chain with the retrieved context
-answer = llm_chain.invoke({"context": context, "question": query})
-
-# Output the Answer and Sources
-print("Answer:", answer)
-"""

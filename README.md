@@ -24,6 +24,9 @@ This application is designed to make it easy to extract and interact with inform
 
 ## Dependencies
 
+Create a virtual environment first:
+python3 -m venv .venv && source .venv/bin/activate
+Then, install the required packages:
 To run this project, you need to install the following dependencies:
 pip3 install pinecone-client
 pip3 install langchain
@@ -34,8 +37,10 @@ pip3 install langchain-pinecone
 pip3 install langchain-text-splitters
 pip3 install pypdf
 pip3 install chainlit
+pip3 install PyPDF2
 
 ## How to run it
 
 Run with the following command within the main folder (cd main):
 chainlit run chatbot-docs-app.py -w --port 8080
+chainlit run chatbot-upload-pdf-app.py -w --port 8080
